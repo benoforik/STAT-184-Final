@@ -1,0 +1,320 @@
+---
+title: "STAT 184 Course Project — Final"
+author: "Benjamin Ofori-Kuragu"
+format: pdf
+self.contained: TRUE
+---
+
+# Introduction
+
+In this project, I’m exploring how college football win rates vary across different conferences and what underlying statistical factors contribute and go along with a program’s long-term success. Using my primary dataset from Kaggle which contains historical win rates and team records I'll compare conferences like the SEC and Big Ten while accounting for the recent realignment changes. My two secondary datasets, which contain detailed offensive and defensive statistics from the 2013 and 2023 seasons, helps me see things over a longer period of time and how things can change over a decade span. This will allow me to analyze specific performance metrics that contribute to success. Together, these datasets will help me better understand both conference-level trends and program-level dominance over time.
+
+# Primary Data Set
+
+**Where the Data Came From:**\
+The primary dataset comes from Kaggle, titled ***College Football Dataset***. The link to the dataset can be found here at: <https://www.kaggle.com/datasets/cvergnolle/football-5>. It was put together from various public sources, including NCAA reports and public sports databases.
+
+**Relevance to the Questions:**
+
+This dataset directly tracks win-loss records, conferences, and seasons, allowing me to calculate win rates for teams across different conferences over multiple years. It provides the foundation to compare win rates between SEC and Big Ten teams and to investigate how realignment has shifted conference strength.
+
+**Imported Data Inspection:**
+
+```{r message=FALSE, warning=FALSE}
+#| label: PDS
+library(tidyverse)
+cfb_primary <- read_csv("College Football.csv")
+glimpse(cfb_primary)
+head(cfb_primary)
+names(cfb_primary)
+nrow(cfb_primary)
+```
+
+The dataset has consistent structure but requires cleaning to address teams that changed conferences.
+
+# Secondary Data Set 1: 2023 College Football Team Stats
+
+**Where the Data Came From:**\
+This dataset was sourced from a publicly available spreadsheet titled **cfb23_secondary.csv.**
+
+**Relevance to the Questions:**\
+The 2023 dataset allows evaluation of offensive and defensive performance (yardage, scoring, turnovers, time of possession, and more) and how these things directly relate with win rates. This supports my ongoing investigation into what metrics contribute to a program's dominance.
+
+**Imported Data Inspection:**
+
+```{r message=FALSE, warning=FALSE}
+#| label: 23DS
+cfb23_secondary <- read_csv("cfb23_secondary.csv")
+head(cfb23_secondary)
+nrow(cfb23_secondary)
+```
+
+# Secondary Data Set 2: 2013 College Football Team Stats
+
+**Where the Data Came From:**\
+This dataset was sourced from a publicly available spreadsheet **cfb13_secondary.csv.**
+
+**Relevance to the Questions:**\
+The 2013 dataset allows comparison over time, looking at how programs have maintained or declined in performance across a decade. This adds depth to my analysis of long-term program success.
+
+**Imported Data Inspection:**
+
+```{r message=FALSE, warning=FALSE}
+#| label: 13DS
+cfb13_secondary <- read_csv("cfb13_secondary.csv")
+head(cfb13_secondary)
+nrow(cfb13_secondary)
+```
+
+# Progress on Data Wrangling and Early EDA
+
+In terms of the cleaning process I imported all three datasets successfully. I then began standardizing the team names across the years while also matching the conference names between primary and secondary datasets.
+
+**Early Visualizations:**
+
+```{r}
+#| label: FBSTable
+library(rvest)
+library(tidyverse)
+
+url <- "https://en.wikipedia.org/wiki/List_of_NCAA_Division_I_FBS_football_programs"
+page <- read_html(url)
+
+fbs_table <- page %>%
+  html_table() %>%
+  .[[1]]
+
+fbs_clean <- fbs_table %>%
+  select(
+    School = `School`,
+    Nickname = `Nickname`,
+    City = `City`,
+    State = `State [a]`,
+    Enrollment = `Enrollment`,
+    Conference = `CurrentConference[b]`
+  )
+
+```
+
+In this next part, I made a plot for the Average Win Rate by Conference, as you can see in the plot, the larger and more historic conferences lead the way by percentages.
+
+```{r message=FALSE, warning=FALSE, code-line-numbers=TRUE}
+#| label: AWR
+library(tidyverse)
+cfb_primary <- read_csv("College Football.csv")
+cfb_primary <- cfb_primary %>%
+  rename(WinRate = `Win Rate`) %>%
+  mutate(WinRate = as.numeric(str_remove(WinRate, "%")))
+
+avg_win_rate <- cfb_primary %>%
+  group_by(Conference) %>%
+  summarize(AverageWinRate = mean(WinRate, na.rm = TRUE))
+
+ggplot(avg_win_rate, aes(x = reorder(Conference, -AverageWinRate), y = AverageWinRate)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(title = "Average Win Rate by Conference",
+       x = "Conference",
+       y = "Average Win Rate (%)")
+```
+
+# Web-Scraped Dataset
+
+To explore how undergraduate enrollment varies across conferences in NCAA FBS programs, I made a boxplot using the web-scraped dataset from Wikipedia. This plot helps visualize the distribution and spread of enrollment sizes within each conference and it shows which conferences generally have larger or smaller schools.
+
+```{r, code-line-numbers=TRUE}
+#| label: WSDataset
+library(rvest)
+library(tidyverse)
+
+
+url <- "https://en.wikipedia.org/wiki/List_of_NCAA_Division_I_FBS_football_programs"
+page <- read_html(url)
+
+fbs_table <- page %>%
+  html_table() %>%
+  .[[1]]
+
+# View columns
+names(fbs_table)
+
+fbs_clean <- fbs_table %>%
+  select(
+    School = `School`,
+    Nickname = `Nickname`,
+    City = `City`,
+    State = `State [a]`,
+    Enrollment = `Enrollment`,
+    Conference = `CurrentConference[b]`
+  )
+
+fbs_clean <- fbs_clean %>%
+  mutate(
+    Enrollment = as.numeric(str_remove_all(Enrollment, ",")),
+    Conference = as.factor(Conference)
+  )
+
+# Plot
+ggplot(fbs_clean, aes(x = Conference, y = Enrollment)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(
+    title = "Undergraduate Enrollment Distribution by Conference",
+    x = "Conference",
+    y = "Undergraduate Enrollment"
+  )
+```
+
+In this step, I joined my main football dataset with the data I scraped from Wikipedia so I could add each school's enrollment information. I then made a scatter plot to see if there is any pattern between a school's undergraduate enrollment and its football win rate, with the points colored by conference to compare across different groups.
+
+```{r  message=FALSE, warning=FALSE, code-line-numbers=TRUE}
+
+cfb_augmented <- left_join(cfb_primary, fbs_clean, by = "School")
+
+ggplot(cfb_augmented, aes(x = Enrollment, y = WinRate, color = Conference.y)) +
+  geom_point(size = 3, alpha = 0.7) +
+  labs(
+    title = "Undergraduate Enrollment vs. Win Rate by Conference",
+    x = "Undergraduate Enrollment",
+    y = "Win Rate (%)",
+    color = "Conference.y"
+  )
+
+
+```
+
+## Final Conclusion Paragraph
+
+Working on this project gave me a chance to see how different factors shape the success of college football programs across conferences. By looking at win rates, enrollment sizes, and conference differences, I noticed that schools in conferences like the SEC and Big Ten often have higher win rates and bigger student bodies, which could give them an edge on the field. Using the all the data I collected I was able to tie together past performance with current trends in a way that made the numbers more meaningful in my opnion. This project also helped me get comfortable with cleaning data, joining datasets, creating visualizations, and even scraping data myself. Overall, it was interesting to see how the data lines up with what we often hear about college football, and I feel more confident analyzing real-world data after this project.
+
+# References
+
+-   NCAA Division I FBS Football Programs Wikipedia Page. (n.d.). Wikipedia. Retrieved from <https://en.wikipedia.org/wiki/List_of_NCAA_Division_I_FBS_football_programs>
+
+-   College Football Statistics (2023 Season). Data pulled from <https://www.kaggle.com/datasets/jeffgallini/college-football-team-stats-2019?resource=download>
+
+-   College Football Statistics (2013 Season). Data pulled from <https://www.kaggle.com/datasets/jeffgallini/college-football-team-stats-2019?resource=download>
+
+-   Vergnolle, C. (n.d.). College Football Dataset. Kaggle. Retrieved from <https://www.kaggle.com/datasets/cvergnolle/football-5>
+
+# Code Appendix
+
+```{r, code-line-numbers=TRUE}
+# Style Guide: Hadley Wickham's Tidyverse Style Guide
+
+# Load Libraries
+library(tidyverse)
+library(stringr)
+library(tidyr)
+
+
+cfb_primary <- read_csv("College Football.csv", show_col_types = FALSE) %>%
+  mutate(
+    WinRate = as.numeric(str_remove(`Win Rate`, "%")),
+    FootballRevenue = as.numeric(str_remove_all(`Football Revenue`, "[$,]")),
+    FootballProfit = as.numeric(str_remove_all(`Football Profit`, "[$,]")),
+    FootballExpenses = as.numeric(str_remove_all(`Football Expenses`, "[$,]"))
+  )
+
+
+cfb23_secondary <- read_csv("cfb23_secondary.csv", show_col_types = FALSE)
+
+
+cfb23_secondary <- cfb23_secondary %>%
+  mutate(TeamClean = str_remove(Team, " \\(.+\\)"))
+
+cfb_combined <- cfb_primary %>%
+  inner_join(cfb23_secondary, by = c("School" = "TeamClean"))
+
+
+cfb_long <- cfb23_secondary %>%
+  pivot_longer(
+    cols = c(`Off Yards`, `Yards Allowed`),
+    names_to = "Metric",
+    values_to = "Yards"
+  )
+
+
+cfb_primary <- cfb_primary %>%
+  mutate(
+    Conference = str_replace_all(Conference, "Big 12", "Big Twelve")
+  )
+
+library(rvest)
+library(tidyverse)
+
+
+url <- "https://en.wikipedia.org/wiki/List_of_NCAA_Division_I_FBS_football_programs"
+page <- read_html(url)
+
+fbs_table <- page %>%
+  html_table() %>%
+  .[[1]]
+
+# View columns
+names(fbs_table)
+
+fbs_clean <- fbs_table %>%
+  select(
+    School = `School`,
+    Nickname = `Nickname`,
+    City = `City`,
+    State = `State [a]`,
+    Enrollment = `Enrollment`,
+    Conference = `CurrentConference[b]`
+  )
+
+fbs_clean <- fbs_clean %>%
+  mutate(
+    Enrollment = as.numeric(str_remove_all(Enrollment, ",")),
+    Conference = as.factor(Conference)
+  )
+
+# Filter to conferences with at least 5 schools
+conf_counts <- fbs_clean %>%
+  group_by(Conference) %>%
+  tally() %>%
+  filter(n >= 5)
+
+fbs_filtered <- fbs_clean %>%
+  filter(Conference %in% conf_counts$Conference)
+
+# Plot
+ggplot(fbs_filtered, aes(x = Conference, y = Enrollment)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(
+    title = "Undergraduate Enrollment Distribution by Conference",
+    x = "Conference",
+    y = "Undergraduate Enrollment"
+  )
+```
+
+```{r}
+library(rvest)
+library(tidyverse)
+
+
+url <- "https://en.wikipedia.org/wiki/List_of_NCAA_Division_I_FBS_football_programs"
+page <- read_html(url)
+
+fbs_table <- page %>%
+  html_table() %>%
+  .[[1]]
+
+# View columns
+names(fbs_table)
+
+fbs_clean <- fbs_table %>%
+  select(
+    School = `School`,
+    Nickname = `Nickname`,
+    City = `City`,
+    State = `State [a]`,
+    Enrollment = `Enrollment`,
+    Conference = `CurrentConference[b]`
+  )
+
+
+
+```
+
+```{r}
+```
